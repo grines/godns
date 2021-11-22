@@ -14,8 +14,8 @@ func Start() {
 	red := color.FgRed.Render
 	blue := color.FgBlue.Render
 	green := color.FgGreen.Render
-	ascii := `DNS C2 Framework`
-	print(ascii + "\n")
+	ascii := blue(`GHETTO C2`)
+	print("\n" + ascii + "\n\n")
 
 	for {
 
@@ -24,7 +24,9 @@ func Start() {
 
 			//Grab Credentials
 			readline.PcItem("sessions"),
-			readline.PcItem("use"),
+			readline.PcItem("use",
+				readline.PcItemDynamic(listSessions()),
+			),
 		)
 
 		//readlines configuration
@@ -74,4 +76,11 @@ func filterInput(r rune) (rune, bool) {
 		return r, false
 	}
 	return r, true
+}
+
+// Function constructor - constructs new function for listing given directory
+func listSessions() func(string) []string {
+	return func(line string) []string {
+		return connectedHosts
+	}
 }
