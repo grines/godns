@@ -64,7 +64,9 @@ func Start() {
 
 		//Trimwhitespace and send to commands switch
 		line = strings.TrimSpace(line)
-		Commands(line)
+
+		go Commands(line)
+
 	}
 }
 

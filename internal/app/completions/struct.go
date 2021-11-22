@@ -9,6 +9,7 @@ var currentDir string
 var curcmd string
 var sessionID string
 var csessionID string
+var messages = make(chan map[int]string)
 
 var records = map[string]string{}
 

