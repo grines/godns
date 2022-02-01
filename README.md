@@ -1,2 +1,2 @@
 # godns
-c2 over dns
+c2 over DNS
